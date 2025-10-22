@@ -1,3 +1,5 @@
+<?php
+
 add_action('init', function () {
   add_shortcode('sticky_scroll_slider', function () {
     $imgs = [
@@ -5,14 +7,28 @@ add_action('init', function () {
       'https://orbis.uy/wp-content/uploads/2025/10/Captura-de-pantalla-2025-10-12-210443.png',
       'https://orbis.uy/wp-content/uploads/2025/10/Captura-de-pantalla-2025-10-12-210455.png',
     ];
-    $pin = '100vh';          
-    $total = (count($imgs) * 100) . 'vh';
 
-    ob_start(); ?>
-      <div class="scroll-slider" style="height:<?php echo esc_attr($total); ?>"
-           data-images='<?php echo wp_json_encode($imgs); ?>' data-pin="<?php echo esc_attr($pin); ?>">
-        <div class="scroll-slider__pin">
-          <img class="scroll-slider__img" src="<?php echo esc_url($imgs[0]); ?>" alt="Galería scroll">
+    $pin_desktop = '100vh';
+    $pin_compact = '50vh';
+
+    $inline_styles = sprintf(
+      '--scroll-slider-slides:%d;--scroll-slider-pin-desktop:%s;--scroll-slider-pin-compact:%s;',
+      count( $imgs ),
+      $pin_desktop,
+      $pin_compact
+    );
+
+    ob_start();
+    ?>
+      <div
+        class="scroll-slider"
+        data-images='<?php echo esc_attr( wp_json_encode( $imgs ) ); ?>'
+        style="<?php echo esc_attr( $inline_styles ); ?>"
+      >
+        <div class="scroll-slider__pin" role="presentation">
+          <figure class="scroll-slider__frame">
+            <img class="scroll-slider__img" src="<?php echo esc_url( $imgs[0] ); ?>" alt="Galería scroll">
+          </figure>
         </div>
       </div>
     <?php return ob_get_clean();
@@ -22,16 +38,33 @@ add_action('init', function () {
 add_action('wp_enqueue_scripts', function () {
   // CSS
   $css = <<<CSS
-.scroll-slider{position:relative}
+.scroll-slider {
+  position: relative;
+  --scroll-slider-slides: 1;
+  --scroll-slider-pin-desktop: 100vh;
+  --scroll-slider-pin-compact: 50vh;
+  min-height: calc(var(--scroll-slider-pin-desktop) * var(--scroll-slider-slides));
+  display: block;
+  width: min(100%, 50vw);
+  margin-left: auto;
+}
+
 .scroll-slider__pin {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: var(--scroll-slider-pin-desktop);
+  width: 100%;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #000;
+}
+
+.scroll-slider__frame {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .scroll-slider__img {
@@ -43,6 +76,25 @@ add_action('wp_enqueue_scripts', function () {
   transform: translateZ(0);
   backface-visibility: hidden;
 }
+
+@media (max-width: 1023px) {
+  .scroll-slider {
+    min-height: calc(var(--scroll-slider-pin-compact) * var(--scroll-slider-slides));
+    width: 100%;
+  }
+
+  .scroll-slider__pin {
+    top: auto;
+    bottom: 0;
+    height: var(--scroll-slider-pin-compact);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-slider__img {
+    transition: none;
+  }
+}
 CSS;
   wp_register_style('slider_personalizado_css', false);
   wp_enqueue_style('slider_personalizado_css');
@@ -50,44 +102,144 @@ CSS;
 
   // JS
   $js = <<<JS
-(function(){
-  function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
-  function init(slider){
-    var imgEl = slider.querySelector('.scroll-slider__img');
-    var images = []; try{ images = JSON.parse(slider.getAttribute('data-images')||'[]'); }catch(e){}
-    if(!images.length) return;
-    slider.querySelector('.scroll-slider__pin').style.height = slider.getAttribute('data-pin')||'100vh';
-    images.forEach(function(src){ var i=new Image(); i.src=src; });
+  (function(){
+    var raf = window.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); };
 
-    var last=-1;
-    function onScroll(){
-	  var rect = slider.getBoundingClientRect();
-	  var scrollY = window.scrollY + window.innerHeight;
-	  var start = slider.offsetTop;
-	  var end = start + slider.offsetHeight - window.innerHeight;
-	  var progress = clamp((scrollY - start) / (end - start), 0, 1);
-	  var frame = Math.floor(progress * (images.length - 1));
-	  if (frame !== last) {
-		last = frame;
-		imgEl.style.opacity = 0;
-		requestAnimationFrame(function(){
-		  imgEl.src = images[frame];
-		  imgEl.onload = function(){ imgEl.style.opacity = 1; };
-		});
-	  }
-	}
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
 
-    var io = new IntersectionObserver(function(es){
-      if(es[0].isIntersecting){ window.addEventListener('scroll', onScroll, {passive:true}); onScroll(); }
-      else { window.removeEventListener('scroll', onScroll); }
-    }, {threshold:0});
-    io.observe(slider);
-    window.addEventListener('resize', onScroll, {passive:true});
-  }
-  document.addEventListener('DOMContentLoaded', function(){
-    document.querySelectorAll('.scroll-slider').forEach(init);
-  });
-})();
+    function preload(images) {
+      images.forEach(function (src) {
+        if (!src) {
+          return;
+        }
+        var img = new Image();
+        img.decoding = 'async';
+        img.src = src;
+      });
+    }
+
+    function init(slider) {
+      if (!slider || slider.dataset.stickyReady) {
+        return;
+      }
+
+      var imgEl = slider.querySelector('.scroll-slider__img');
+      if (!imgEl) {
+        return;
+      }
+
+      var images = [];
+      try {
+        images = JSON.parse(slider.getAttribute('data-images') || '[]');
+      } catch (err) {
+        images = [];
+      }
+
+      if (!images.length) {
+        return;
+      }
+
+      slider.dataset.stickyReady = 'true';
+      slider.style.setProperty('--scroll-slider-slides', images.length);
+
+      if (images.length > 1) {
+        preload(images.slice(1));
+      }
+
+      var current = -1;
+      var sliderTop = 0;
+      var sliderEnd = 0;
+      var ticking = false;
+
+      function swapTo(index) {
+        if (index === current || index < 0 || index >= images.length) {
+          return;
+        }
+
+        var nextSrc = images[index];
+        if (!nextSrc) {
+          return;
+        }
+
+        current = index;
+
+        if (imgEl.getAttribute('src') === nextSrc) {
+          imgEl.style.opacity = 1;
+          return;
+        }
+
+        function handleLoad() {
+          imgEl.removeEventListener('load', handleLoad);
+          imgEl.style.opacity = 1;
+        }
+
+        imgEl.addEventListener('load', handleLoad);
+        imgEl.style.opacity = 0;
+        imgEl.src = nextSrc;
+
+        if (imgEl.complete && imgEl.naturalWidth) {
+          handleLoad();
+        }
+      }
+
+      function recalc() {
+        var rect = slider.getBoundingClientRect();
+        sliderTop = rect.top + window.scrollY;
+        sliderEnd = sliderTop + slider.offsetHeight - window.innerHeight;
+        if (sliderEnd < sliderTop) {
+          sliderEnd = sliderTop;
+        }
+      }
+
+      function update() {
+        ticking = false;
+        var total = sliderEnd - sliderTop;
+        var progress = total <= 0 ? 0 : (window.scrollY - sliderTop) / total;
+        progress = clamp(progress, 0, 1);
+        var frame = Math.round(progress * (images.length - 1));
+        swapTo(frame);
+      }
+
+      function onScroll() {
+        if (!ticking) {
+          ticking = true;
+          raf(update);
+        }
+      }
+
+      function onResize() {
+        recalc();
+        update();
+      }
+
+      var observer = new IntersectionObserver(function(entries){
+        var entry = entries[0];
+        if (!entry) {
+          return;
+        }
+
+        if (entry.isIntersecting) {
+          recalc();
+          update();
+          window.addEventListener('scroll', onScroll, { passive: true });
+          window.addEventListener('resize', onResize);
+        } else {
+          window.removeEventListener('scroll', onScroll);
+          window.removeEventListener('resize', onResize);
+        }
+      }, { threshold: 0 });
+
+      observer.observe(slider);
+
+      swapTo(0);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.scroll-slider').forEach(init);
+    });
+  })();
 JS;
   wp_register_script('slider_personalizado_js', false, [], null, true);
   wp_enqueue_script('slider_personalizado_js');
