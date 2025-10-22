@@ -236,9 +236,59 @@ CSS;
       swapTo(0);
     }
 
+    function initAll(root) {
+      (root || document).querySelectorAll('.scroll-slider').forEach(init);
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
-      document.querySelectorAll('.scroll-slider').forEach(init);
+      initAll(document);
     });
+
+    function hookElementor() {
+      if (!window.elementorFrontend || !window.elementorFrontend.hooks) {
+        return;
+      }
+
+      var hook = window.elementorFrontend.hooks;
+      var handler = function(scope){
+        if (!scope) {
+          initAll(document);
+          return;
+        }
+        var context = scope[0] || scope;
+        initAll(context instanceof Element ? context : document);
+      };
+
+      hook.addAction('frontend/element_ready/global', handler);
+      hook.addAction('frontend/element_ready/widget', handler);
+    }
+
+    if (window.elementorFrontend && window.elementorFrontend.hooks) {
+      hookElementor();
+    } else if (window.jQuery && window.jQuery(window).on) {
+      window.jQuery(window).on('elementor/frontend/init', hookElementor);
+    } else {
+      window.addEventListener('elementor/frontend/init', hookElementor);
+    }
+
+    if ('MutationObserver' in window) {
+      var mo = new MutationObserver(function(mutations){
+        mutations.forEach(function(record){
+          record.addedNodes.forEach(function(node){
+            if (!(node instanceof Element)) {
+              return;
+            }
+            if (node.matches && node.matches('.scroll-slider')) {
+              init(node);
+            }
+            if (node.querySelectorAll) {
+              node.querySelectorAll('.scroll-slider').forEach(init);
+            }
+          });
+        });
+      });
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+    }
   })();
 JS;
   wp_register_script('slider_personalizado_js', false, [], null, true);
