@@ -1,0 +1,95 @@
+add_action('init', function () {
+  add_shortcode('sticky_scroll_slider', function () {
+    $imgs = [
+      'https://orbis.uy/wp-content/uploads/2025/10/Captura-de-pantalla-2025-10-12-210426.png',
+      'https://orbis.uy/wp-content/uploads/2025/10/Captura-de-pantalla-2025-10-12-210443.png',
+      'https://orbis.uy/wp-content/uploads/2025/10/Captura-de-pantalla-2025-10-12-210455.png',
+    ];
+    $pin = '100vh';          
+    $total = (count($imgs) * 100) . 'vh';
+
+    ob_start(); ?>
+      <div class="scroll-slider" style="height:<?php echo esc_attr($total); ?>"
+           data-images='<?php echo wp_json_encode($imgs); ?>' data-pin="<?php echo esc_attr($pin); ?>">
+        <div class="scroll-slider__pin">
+          <img class="scroll-slider__img" src="<?php echo esc_url($imgs[0]); ?>" alt="Galería scroll">
+        </div>
+      </div>
+    <?php return ob_get_clean();
+  });
+});
+
+add_action('wp_enqueue_scripts', function () {
+  // CSS
+  $css = <<<CSS
+.scroll-slider{position:relative}
+.scroll-slider__pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.scroll-slider__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity .3s ease;
+  will-change: opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+CSS;
+  wp_register_style('slider_personalizado_css', false);
+  wp_enqueue_style('slider_personalizado_css');
+  wp_add_inline_style('slider_personalizado_css', $css);
+
+  // JS
+  $js = <<<JS
+(function(){
+  function clamp(v,a,b){return Math.min(Math.max(v,a),b);}
+  function init(slider){
+    var imgEl = slider.querySelector('.scroll-slider__img');
+    var images = []; try{ images = JSON.parse(slider.getAttribute('data-images')||'[]'); }catch(e){}
+    if(!images.length) return;
+    slider.querySelector('.scroll-slider__pin').style.height = slider.getAttribute('data-pin')||'100vh';
+    images.forEach(function(src){ var i=new Image(); i.src=src; });
+
+    var last=-1;
+    function onScroll(){
+	  var rect = slider.getBoundingClientRect();
+	  var scrollY = window.scrollY + window.innerHeight;
+	  var start = slider.offsetTop;
+	  var end = start + slider.offsetHeight - window.innerHeight;
+	  var progress = clamp((scrollY - start) / (end - start), 0, 1);
+	  var frame = Math.floor(progress * (images.length - 1));
+	  if (frame !== last) {
+		last = frame;
+		imgEl.style.opacity = 0;
+		requestAnimationFrame(function(){
+		  imgEl.src = images[frame];
+		  imgEl.onload = function(){ imgEl.style.opacity = 1; };
+		});
+	  }
+	}
+
+    var io = new IntersectionObserver(function(es){
+      if(es[0].isIntersecting){ window.addEventListener('scroll', onScroll, {passive:true}); onScroll(); }
+      else { window.removeEventListener('scroll', onScroll); }
+    }, {threshold:0});
+    io.observe(slider);
+    window.addEventListener('resize', onScroll, {passive:true});
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.scroll-slider').forEach(init);
+  });
+})();
+JS;
+  wp_register_script('slider_personalizado_js', false, [], null, true);
+  wp_enqueue_script('slider_personalizado_js');
+  wp_add_inline_script('slider_personalizado_js', $js);
+});
